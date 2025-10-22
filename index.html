@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEC Data for Loading...</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f7f6;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-top: 5px solid #8a2be2;
+        }
+        h1 {
+            color: #8a2be2;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.2em;
+            font-weight: 600;
+        }
+        h2 {
+            color: #555;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-top: 35px;
+            font-size: 1.5em;
+            font-weight: 500;
+        }
+        .data-section {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 25px;
+        }
+        .data-item {
+            flex: 1;
+            min-width: 280px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background-color: #fafafa;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            text-align: center;
+            transition: transform 0.2s ease-in-out;
+        }
+        .data-item:hover {
+            transform: translateY(-5px);
+        }
+        .data-item strong {
+            display: block;
+            font-size: 1.1em;
+            margin-bottom: 10px;
+            color: #666;
+        }
+        .data-value {
+            font-size: 2.2em;
+            font-weight: bold;
+            color: #333;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .data-fy {
+            font-size: 0.9em;
+            color: #777;
+            font-style: italic;
+        }
+        .error-message {
+            color: #d9534f;
+            background-color: #f2dede;
+            border: 1px solid #ebccd1;
+            padding: 15px;
+            border-radius: 4px;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .loading-message {
+            text-align: center;
+            margin-top: 20px;
+            color: #5bc0de;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 id="share-entity-name">Loading Entity Name...</h1>
+
+        <p class="loading-message" id="loading-status">Fetching data from SEC...</p>
+        <p class="error-message" id="error-message" style="display: none;"></p>
+
+        <h2>Entity Common Stock Shares Outstanding (FY > 2020)</h2>
+        <div class="data-section">
+            <div class="data-item">
+                <strong>Maximum Value</strong>
+                <span id="share-max-value" class="data-value">N/A</span>
+                <span id="share-max-fy" class="data-fy">FY: N/A</span>
+            </div>
+            <div class="data-item">
+                <strong>Minimum Value</strong>
+                <span id="share-min-value" class="data-value">N/A</span>
+                <span id="share-min-fy" class="data-fy">FY: N/A</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DEFAULT_CIK = '0001058090';
+        const SEC_API_BASE = 'https://data.sec.gov/api/xbrl/companyconcept/';
+        const USER_AGENT = 'ChipotleApp/1.0 (developer@chipotle.com)';
+        const PROXY_URL_BASE = 'https://api.allorigins.win/raw?url='; // Generic CORS proxy for non-default CIKs
+
+        function updateUI(entityName, maxVal, maxFy, minVal, minFy) {
+            document.title = `SEC Data for ${entityName}`;
+            document.getElementById('share-entity-name').textContent = entityName;
+            document.getElementById('share-max-value').textContent = maxVal.toLocaleString();
+            document.getElementById('share-max-fy').textContent = `FY: ${maxFy}`;
+            document.getElementById('share-min-value').textContent = minVal.toLocaleString();
+            document.getElementById('share-min-fy').textContent = `FY: ${minFy}`;
+            document.getElementById('loading-status').style.display = 'none';
+            document.getElementById('error-message').style.display = 'none';
+        }
+
+        function showError(message) {
+            document.getElementById('error-message').textContent = `Error: ${message}`;
+            document.getElementById('error-message').style.display = 'block';
+            document.getElementById('loading-status').style.display = 'none';
+            // Reset UI elements to indicate error
+            document.title = `Error Loading Data`;
+            document.getElementById('share-entity-name').textContent = 'Error Loading Entity Data';
+            document.getElementById('share-max-value').textContent = 'N/A';
+            document.getElementById('share-max-fy').textContent = 'FY: N/A';
+            document.getElementById('share-min-value').textContent = 'N/A';
+            document.getElementById('share-min-fy').textContent = 'FY: N/A';
+        }
+
+        async function fetchAndProcessData(cik) {
+            document.getElementById('loading-status').style.display = 'block';
+            document.getElementById('error-message').style.display = 'none';
+
+            let secUrl = `${SEC_API_BASE}CIK${cik}/dei/EntityCommonStockSharesOutstanding.json`;
+            let fetchUrl = secUrl;
+            let headers = { 'User-Agent': USER_AGENT };
+
+            const isDefaultCik = (cik === DEFAULT_CIK);
+
+            // Use proxy for non-default CIKs to circumvent potential CORS issues or SEC rate limits from client-side requests
+            if (!isDefaultCik) {
+                 fetchUrl = `${PROXY_URL_BASE}${encodeURIComponent(secUrl)}`;
+                 // User-Agent cannot be reliably set when using a generic CORS proxy like allorigins
+                 headers = {};
+            }
+
+            try {
+                const response = await fetch(fetchUrl, { headers: headers });
+
+                if (!response.ok) {
+                    let errorMessage = `Failed to fetch data (Status: ${response.status}).`;
+                    if (response.status === 403) {
+                        errorMessage += ' This might be due to SEC rate limits or an invalid User-Agent.';
+                    } else if (response.status === 404) {
+                        errorMessage += ` Data not found for CIK ${cik}. It might be an invalid CIK or the company does not have the specified concept.`;
+                    }
+                    throw new Error(errorMessage);
+                }
+
+                const data = await response.json();
+
+                if (!data.entityName || !data.units || !data.units.shares) {
+                    throw new Error('Invalid data structure received from SEC API. Missing entityName, units, or shares data.');
+                }
+
+                const entityName = data.entityName;
+                const filteredShares = data.units.shares.filter(s =>
+                    s.fy > 2020 && typeof s.val === 'number'
+                );
+
+                if (filteredShares.length === 0) {
+                    throw new Error('No relevant share data found for FY > 2020 matching criteria.');
+                }
+
+                let maxValEntry = filteredShares[0];
+                let minValEntry = filteredShares[0];
+
+                for (const entry of filteredShares) {
+                    if (entry.val > maxValEntry.val) {
+                        maxValEntry = entry;
+                    }
+                    if (entry.val < minValEntry.val) {
+                        minValEntry = entry;
+                    }
+                }
+
+                updateUI(entityName, maxValEntry.val, String(maxValEntry.fy), minValEntry.val, String(minValEntry.fy));
+
+            } catch (error) {
+                console.error("Error fetching or processing data:", error);
+                showError(error.message);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const cikParam = urlParams.get('CIK');
+
+            if (cikParam && cikParam.match(/^\d{10}$/)) {
+                fetchAndProcessData(cikParam);
+            } else {
+                fetchAndProcessData(DEFAULT_CIK);
+            }
+        });
+    </script>
+</body>
+</html>
